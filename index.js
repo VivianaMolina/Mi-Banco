@@ -5,9 +5,9 @@ const argumentos = process.argv.slice(2);
 const evento = String(argumentos[0]);
 const descripcion = String(argumentos[1]);
 const fecha = String(argumentos[2]);
-const monto = argumentos[3];
+const monto = Number(argumentos[3]);
 const cuenta_origen = Number(argumentos[4]);
-const cuenta_destino = argumentos[5];
+const cuenta_destino = Number(argumentos[5]);
 
 const config = {
     host: "localhost",
@@ -24,6 +24,23 @@ const pool = new Pool(config);
 const nuevaTransferencia = async (descripcion, fecha, monto, cuenta_origen, cuenta_destino) => {
     try {
         await pool.query("BEGIN");
+        // Paso 1
+        const descontar = {
+            text: "UPDATE cuentas SET saldo = saldo - $1 WHERE id = $2 RETURNING *",
+            values: [monto, cuenta_origen]
+        };
+        const descuento = await pool.query(descontar);
+        // Paso 2
+        const acreditar = {
+            text: "UPDATE cuentas SET saldo = saldo + $1 WHERE id = $2 RETURNING *",
+            values: [monto, cuenta_destino]
+        };
+        const acreditacion = await pool.query(acreditar);
+        // Paso 3
+        console.log("Descuento realizado con éxito: ", descuento.rows[0]);
+        console.log("Acreditación realizada con éxito: ", acreditacion.rows[0]);
+
+
         //Hacer todas las consultas con un JSON como argumento del método query
         const insert = {
             text: "INSERT INTO transferencias (descripcion, fecha, monto, cuenta_origen, cuenta_destino) values ($1, $2, $3, $4, $5)",
@@ -53,15 +70,15 @@ const consultaTransferencia = async (cuenta_origen) => {
 
         const text = "select * from transferencias where cuenta_origen = $1";
         const values = [cuenta_origen]
-    
+
         const consulta = new Cursor(text, values)
         const cursor = await client.query(consulta)
-        
-        cursor.read(10, (err, rows) => {   
-            console.log(rows);    
+
+        cursor.read(10, (err, rows) => {
+            console.log(rows);
             cursor.close();
             client.release()
-            });
+        });
         await pool.query("COMMIT");
 
     } catch (error) {
@@ -75,16 +92,16 @@ const consultaTransferencia = async (cuenta_origen) => {
 };
 
 //3. Realizar una función asíncrona que consulte el saldo de una cuenta en específico
-const consultarSaldo = async (cuenta_origen) => {
+const consultarSaldo = async (cuenta) => {
     try {
         await pool.query("BEGIN");
-        const query = {
-            text: 'SELECT SUM(monto) AS saldo FROM transferencias WHERE cuenta_origen = $1 OR cuenta_destino = $1',
-            values: [cuenta_origen],
+        const consulta = {
+            text: 'SELECT saldo FROM cuentas WHERE id = $1',
+            values: [cuenta],
         };
-        const result = await pool.query(query);
-        const saldo = result.rows[0].saldo || 0; // Si no hay saldo, se devuelve 0
-        console.log(`Saldo de la cuenta ${cuenta_origen}: ${saldo}`);
+        const result = await pool.query(consulta);
+        console.log(`Saldo de la cuenta ${cuenta}:` , result.rows);
+        
         await pool.query("COMMIT");
     } catch (error) {
         await pool.query("ROLLBACK");
@@ -97,15 +114,15 @@ const consultarSaldo = async (cuenta_origen) => {
 //2. Hacer las consultas con texto parametrizado. 
 switch (evento) {
     case "nueva":
-        // Ejemplo input console node index.js nueva "test" '02-05-2024' 10000 1030000 172456
+        // Ejemplo input console node index.js nueva "test" '02-05-2024' 10000 1 2
         nuevaTransferencia(descripcion, fecha, monto, cuenta_origen, cuenta_destino);
         break;
     case "consulta":
-        //Ejemplo input console node index.js consulta - - - 1030000
+        //Ejemplo input console node index.js consulta - - - 1
         consultaTransferencia(cuenta_origen);
         break;
     case "consultaSaldo":
-        //Ejemplo input console node index.js consultaSaldo - - - 1030000
+        //Ejemplo input console node index.js consultaSaldo - - - 2
         consultarSaldo(cuenta_origen);
         break;
     default:
